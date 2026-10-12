@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "mini-nginx"
+version = "0.1.0"
+description = ""
+package-mode = false
+readme = "README.md"
+
+
+[tool.poetry.dependencies]
+fastapi = "0.115.12"
+python=">=3.13"
+uvicorn = "^0.40.0"
+uvicorn-worker = "^0.4.0"
+pyyaml = "^6.0.3"
+
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
