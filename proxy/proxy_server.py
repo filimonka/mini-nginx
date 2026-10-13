@@ -1,11 +1,9 @@
 import asyncio
-from asyncio import StreamReader, StreamWriter, TimeoutError
+from asyncio import StreamReader, StreamWriter
 
 from client_handler import ClientHandler
-from errors import send_error_response
 from logger import logger
 from metrics import Metrics
-from settings import config
 
 
 class ProxyServer:
@@ -22,24 +20,10 @@ class ProxyServer:
         )
         self.metrics.increment_active_client_count()
         self.metrics.increment_new_clients_count()
-        try:
-            await asyncio.wait_for(
-                handler.handle_client(),
-                timeout=config.timeouts.total_ms,
-            )
-        except TimeoutError:
-            self.metrics.increment_failed_total()
-            self.metrics.increment_timeout_errors()
-            logger.error("Error handling client: Timeout total")
-            await send_error_response(
-                code=504, message="Gateway Timeout", writer=writer
-            )
-        except Exception as e:
-            logger.error("Error handling client: %s", e)
-            self.metrics.increment_failed_total()
-            await send_error_response(code=500, message="Server Error", writer=writer)
-        finally:
-            self.metrics.decrement_active_client_count()
+
+        await handler.handle_client()
+
+        self.metrics.decrement_active_client_count()
 
     async def start(self):
 

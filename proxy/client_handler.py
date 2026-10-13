@@ -77,6 +77,51 @@ class ClientHandler:
             int(headers_map.get("content-length", 0)),
         )
 
+    async def get_target_reader_writer(self):
+        try:
+            return await up_pool.get_connection(peer_port=self.address[1])
+        except OpenConnError as e:
+            logger.error(e)
+            await send_error_response(
+                code=502, message="Bad Gateway", writer=self.writer
+            )
+            self.metrics.increment_failed_total()
+            return None, None, None
+        except SemaphoreTimeOutError as e:
+            logger.error(e)
+            await send_error_response(
+                code=504, message="Gateway Timeout", writer=self.writer
+            )
+            self.metrics.increment_failed_total()
+            self.metrics.increment_refused_by_limit_total()
+            return None, None, None
+
+    async def proxy_data(self, tasks: list, keep_alive: bool):
+        try:
+            request_ok, response_ok = await asyncio.wait_for(
+                asyncio.gather(*tasks), timeout=config.timeouts.total_ms
+            )
+            if not all([request_ok, response_ok]) and keep_alive:
+                self.writer.close()
+                await self.writer.wait_closed()
+            return request_ok and response_ok
+
+        except asyncio.TimeoutError:
+            logger.error("Ошибка прокси: Timeout")
+            self.metrics.increment_failed_total()
+            self.metrics.increment_timeout_errors()
+            await send_error_response(
+                code=504, message="Gateway Timeout", writer=self.writer
+            )
+            return False
+        except Exception as e:
+            logger.error(f"Ошибка прокси: {e}")
+            self.metrics.increment_failed_total()
+            await send_error_response(
+                code=500, message="Internal Server Error", writer=self.writer
+            )
+            return False
+
     async def handle_client(self):
 
         datetime_started = datetime.now(UTC)
@@ -92,28 +137,13 @@ class ClientHandler:
             if not headers:
                 break
             async with self.semaphore:
-                try:
-                    (
-                        target_reader,
-                        target_writer,
-                        upstream_address,
-                    ) = await up_pool.get_connection(peer_port=self.address[1])
-                except OpenConnError as e:
-                    logger.error(e)
-                    await send_error_response(
-                        code=502, message="Bad Gateway", writer=self.writer
-                    )
-                    self.metrics.increment_failed_total()
+                (
+                    target_reader,
+                    target_writer,
+                    upstream_address,
+                ) = await self.get_target_reader_writer()
+                if not all([target_reader, target_writer, upstream_address]):
                     break
-                except SemaphoreTimeOutError as e:
-                    logger.error(e)
-                    await send_error_response(
-                        code=504, message="Gateway Timeout", writer=self.writer
-                    )
-                    self.metrics.increment_failed_total()
-                    self.metrics.increment_refused_by_limit_total()
-                    break
-
                 if datetime_started:
                     seconds_to_upstream = (
                         datetime.now(UTC) - datetime_started
@@ -137,25 +167,10 @@ class ClientHandler:
                         self.relay_response(target_reader=target_reader)
                     ),
                 ]
-                try:
-                    request_ok, response_ok = await asyncio.gather(*tasks)
-                    if not all([request_ok, response_ok]) and keep_alive:
-                        self.writer.close()
-                        await self.writer.wait_closed()
+                success = await self.proxy_data(tasks=tasks, keep_alive=keep_alive)
+                if not success:
+                    break
 
-                except asyncio.TimeoutError:
-                    logger.error("Ошибка прокси: Timeout")
-                    self.metrics.increment_failed_total()
-                    self.metrics.increment_timeout_errors()
-                    await send_error_response(
-                        code=504, message="Gateway Timeout", writer=self.writer
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка прокси: {e}")
-                    self.metrics.increment_failed_total()
-                    await send_error_response(
-                        code=500, message="Internal Server Error", writer=self.writer
-                    )
             await up_pool.release_connection(
                 upstream_address, target_reader, target_writer
             )
