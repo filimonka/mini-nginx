@@ -33,7 +33,16 @@ class ClientHandler:
             )
             return headers
 
+        except asyncio.TimeoutError:
+            logger.error("Ошибка чтения заголовков: Timeout")
+            self.metrics.increment_failed_total()
+            self.metrics.increment_timeout_errors()
+            await send_error_response(
+                code=504, message="Gateway Timeout", writer=self.writer
+            )
+
         except Exception as e:  # noqa: BLE001
+            self.metrics.increment_failed_total()
             logger.info(f"Получение заголовков: {e}, from_client={from_client}")
 
     async def get_and_parse_headers(
@@ -58,6 +67,7 @@ class ClientHandler:
             logger.info(logger_msg, one, two, three)
         except ValueError:
             logger.info("Ошибка получения первой строки заголовков")
+            self.metrics.increment_failed_total()
             return None, None, None
         headers_map = {}
         for line in header_lines[1:]:
@@ -68,6 +78,7 @@ class ClientHandler:
                 key, value = str_line.split(":", 1)
                 headers_map[key.strip().lower()] = value.strip()
             except Exception as e:  # noqa: BLE001
+                self.metrics.increment_failed_total()
                 logger.error(e)
         return (
             headers,
@@ -95,15 +106,20 @@ class ClientHandler:
             self.metrics.increment_failed_total()
             self.metrics.increment_refused_by_limit_total()
             return None, None, None
+        except Exception as e:
+            logger.error(e)
+            await send_error_response(
+                code=500, message="Internal Server Error", writer=self.writer
+            )
+            self.metrics.increment_failed_total()
+            return None, None, None
 
     async def proxy_data(self, tasks: list, keep_alive: bool):
         try:
             request_ok, response_ok = await asyncio.wait_for(
                 asyncio.gather(*tasks), timeout=config.timeouts.total_ms
             )
-            if not all([request_ok, response_ok]) and keep_alive:
-                self.writer.close()
-                await self.writer.wait_closed()
+
             return request_ok and response_ok
 
         except asyncio.TimeoutError:
@@ -123,7 +139,6 @@ class ClientHandler:
             return False
 
     async def handle_client(self):
-
         datetime_started = datetime.now(UTC)
         # Не очень понимаю как считать время до получения апстрима внутри цикла,
         # поэтому записываю только время до апсрима при первом запросе от клиента
@@ -167,13 +182,16 @@ class ClientHandler:
                         self.relay_response(target_reader=target_reader)
                     ),
                 ]
-                success = await self.proxy_data(tasks=tasks, keep_alive=keep_alive)
-                if not success:
-                    break
 
-            await up_pool.release_connection(
-                upstream_address, target_reader, target_writer
-            )
+                success = await self.proxy_data(tasks=tasks, keep_alive=keep_alive)
+
+                await up_pool.release_connection(
+                    upstream_address, target_reader, target_writer
+                )
+            if not success or not keep_alive:
+                self.writer.close()
+                await self.writer.wait_closed()
+                break
 
     async def relay_request(
         self,

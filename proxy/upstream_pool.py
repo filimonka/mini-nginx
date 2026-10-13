@@ -88,8 +88,8 @@ class UpstreamPool:
         """put a still-alive keep-alive connection back into the idle pool for reuse"""
         if writer.is_closing():
             return
-        async with self.lock:
-            await self.idle_connections[address].put((reader, writer))
+
+        await self.idle_connections[address].put((reader, writer))
 
 
 up_pool = UpstreamPool()

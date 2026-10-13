@@ -20,13 +20,12 @@ class ProxyServer:
         )
         self.metrics.increment_active_client_count()
         self.metrics.increment_new_clients_count()
-
-        await handler.handle_client()
-
-        self.metrics.decrement_active_client_count()
+        try:
+            await handler.handle_client()
+        finally:
+            self.metrics.decrement_active_client_count()
 
     async def start(self):
-
         server = await asyncio.start_server(self.handle_client, self.host, self.port)
         async with server:
             try:
