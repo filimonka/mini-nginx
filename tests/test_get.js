@@ -9,13 +9,21 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 
 const PROXY_URL = 'http://localhost:8080';
 
-// Отдельные метрики на GET/POST, чтобы видеть деградацию по каждому типу запроса,
+// Отдельные метрики по типу запроса, чтобы видеть деградацию отдельно,
 // а не усреднённую по всем.
 const getDuration = new Trend('get_duration', true);
 const postDuration = new Trend('post_duration', true);
+const streamDuration = new Trend('stream_duration', true);
+const echoDuration = new Trend('echo_duration', true);
 const errorRate = new Rate('proxy_error_rate');
 const badGatewayTotal = new Counter('proxy_502_bad_gateway');
 const gatewayTimeoutTotal = new Counter('proxy_504_gateway_timeout');
+
+function recordStatus(res) {
+    errorRate.add(res.status !== 200);
+    if (res.status === 502) badGatewayTotal.add(1);
+    if (res.status === 504) gatewayTimeoutTotal.add(1);
+}
 
 export const options = {
     scenarios: {
@@ -50,9 +58,7 @@ export default function () {
     });
 
     getDuration.add(getRes.timings.duration);
-    errorRate.add(getRes.status !== 200);
-    if (getRes.status === 502) badGatewayTotal.add(1);
-    if (getRes.status === 504) gatewayTimeoutTotal.add(1);
+    recordStatus(getRes);
 
     check(getRes, {
         'GET: прокси отвечает 200': (r) => r.status === 200,
@@ -71,13 +77,42 @@ export default function () {
     });
 
     postDuration.add(postRes.timings.duration);
-    errorRate.add(postRes.status !== 200);
-    if (postRes.status === 502) badGatewayTotal.add(1);
-    if (postRes.status === 504) gatewayTimeoutTotal.add(1);
+    recordStatus(postRes);
 
     check(postRes, {
         'POST: статус 200': (r) => r.status === 200,
         'POST: есть тело': (r) => r.body && r.body.length > 0,
+    });
+
+    const streamRes = http.get(`${PROXY_URL}/stream`, {
+        headers: {
+            'User-Agent': 'k6-test',
+        },
+        tags: { name: 'proxy_stream' },
+    });
+
+    streamDuration.add(streamRes.timings.duration);
+    recordStatus(streamRes);
+
+    check(streamRes, {
+        'STREAM: статус 200': (r) => r.status === 200,
+        'STREAM: пришли все части': (r) => r.body && r.body.includes('part 0') && r.body.includes('part 2'),
+    });
+
+    const echoPayload = 'echo payload';
+    const echoRes = http.post(`${PROXY_URL}/echo`, echoPayload, {
+        headers: {
+            'Content-Type': 'text/plain',
+        },
+        tags: { name: 'proxy_echo' },
+    });
+
+    echoDuration.add(echoRes.timings.duration);
+    recordStatus(echoRes);
+
+    check(echoRes, {
+        'ECHO: статус 200': (r) => r.status === 200,
+        'ECHO: тело отражено': (r) => r.body && r.body.includes(echoPayload),
     });
 
     sleep(0.1);

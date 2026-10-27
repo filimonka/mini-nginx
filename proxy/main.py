@@ -1,10 +1,12 @@
 import asyncio
 
 import uvicorn
+
 from logger import logger
 from metrics import metrics, metrics_app
 from proxy_server import ProxyServer
 from settings import config
+
 
 HOST, PORT = config.get_host_port_to_listen()
 
@@ -18,7 +20,7 @@ async def server(host: str = HOST, port: int = PORT):
     ).start
 
     metrics_app_config = uvicorn.Config(
-        metrics_app, host="127.0.0.1", port=8000, loop="asyncio"
+        metrics_app, host=HOST, port=8000, loop="asyncio"
     )
     metrics_app_server = uvicorn.Server(metrics_app_config)
     await asyncio.gather(

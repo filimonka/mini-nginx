@@ -1,10 +1,6 @@
 from asyncio import StreamWriter
 
 
-class SemaphoreTimeOutError(Exception):
-    """Вызываем при timeout семафора"""
-
-
 class OpenConnError(Exception):
     """Вызываем при ошибке открытия соединения"""
 

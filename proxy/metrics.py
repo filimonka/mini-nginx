@@ -3,6 +3,7 @@ from collections import defaultdict, deque
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
+
 TIME_TO_CONNECT_WINDOW = 100
 
 
@@ -16,6 +17,8 @@ class Metrics:
         self.time_to_connect: deque[float] = deque(maxlen=TIME_TO_CONNECT_WINDOW)
         self.timeout_errors: int = 0
         self.new_clients_count: int = 0
+
+        self.active_clients_by_upstream: dict[tuple, int] = defaultdict(int)
 
     def increment_timeout_errors(self) -> None:
         self.timeout_errors += 1
@@ -59,6 +62,13 @@ class Metrics:
         self.increment_proxied_to_upstream(upstream_key)
         self.record_time_to_connect(time_to_connect)
 
+    def increment_active_clients_by_upstream(self, key: tuple) -> None:
+        self.active_clients_by_upstream[key] += 1
+
+    def decrement_active_clients_by_upstream(self, key: tuple) -> None:
+        if self.active_clients_by_upstream[key] > 0:
+            self.active_clients_by_upstream[key] -= 1
+
 
 metrics = Metrics()
 
@@ -87,7 +97,12 @@ def show_metrics() -> dict:
         </ul>
         <ul>
             <li>Проксировано на upstream: {dict(metrics.proxied_to_upstream)}</li>
-            <li>Среднее время от подключения до проксирования: {metrics.avg_time_to_connect:.4f} секунд</li>
+            <li>Среднее время от подключения до проксирования:
+            {metrics.avg_time_to_connect:.4f} секунд</li>
+
+            <li>Активные клиенты по upstream:
+            {dict(metrics.active_clients_by_upstream)}</li>
+
         </ul>
         </body>
         </html>

@@ -1,4 +1,5 @@
 import asyncio
+
 from asyncio import StreamReader, StreamWriter
 
 from client_handler import ClientHandler
@@ -34,6 +35,8 @@ class ProxyServer:
                 logger.info("Proxy server started on %s:%s", self.host, self.port)
             except asyncio.CancelledError:
                 logger.info("Server cancelled")
+            except KeyboardInterrupt:
+                logger.info("Server stopped by user")
             except Exception as e:
                 logger.info(e)
             finally:

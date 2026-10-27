@@ -1,8 +1,13 @@
 from pathlib import Path
 from typing import Literal
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 
 class ConfigModel(BaseModel):
@@ -44,17 +49,38 @@ class Logging(ConfigModel):
         return value
 
 
-class Config(ConfigModel):
+class Config(BaseSettings):
     listen: str
     upstreams: list[Upstream] = Field(min_length=1)
     timeouts: Timeouts
     limits: Limits
     logging: Logging
+    model_config = SettingsConfigDict(
+        yaml_file=Path(__file__).with_name("config.yml"),
+        yaml_file_encoding="utf-8",
+        extra="forbid",
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
     def get_host_port_to_listen(self) -> tuple[str, int]:
         host, port_str = self.listen.split(":")
         return host, int(port_str)
 
 
-raw = yaml.safe_load(Path("proxy/config.yml").read_text(encoding="utf-8"))
-config = Config.model_validate(raw)
+config = Config()
