@@ -5,19 +5,18 @@
 ## Требования
 
 - Python 3.13 или новее
-- [Poetry](https://python-poetry.org/docs/#installation)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.12.24. Более новые версии могут не соответствовать этой инструкции.
 - [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) — для нагрузочных тестов
 
 Команды ниже рассчитаны на запуск из корня репозитория в Bash или Zsh.
 
 ## Установка
 
-Перейдите в каталог проекта, выберите Python и установите зависимости:
+Перейдите в каталог проекта и установите зависимости. Версию Python `uv` возьмёт из [.python-version](.python-version):
 
 ```bash
 cd mini-nginx
-poetry env use python3.13
-poetry install
+uv sync
 ```
 
 
@@ -30,11 +29,11 @@ poetry install
 Запустите по одному серверу в каждом из двух терминалов:
 
 ```bash
-poetry run uvicorn tests.echo_app:app --host 127.0.0.1 --port 9001 --workers 1
+uv run uvicorn tests.echo_app:app --host 127.0.0.1 --port 9001 --workers 1
 ```
 
 ```bash
-poetry run uvicorn tests.echo_app:app --host 127.0.0.1 --port 9002 --workers 1
+uv run uvicorn tests.echo_app:app --host 127.0.0.1 --port 9002 --workers 1
 ```
 
 ### 2. Прокси
@@ -42,7 +41,7 @@ poetry run uvicorn tests.echo_app:app --host 127.0.0.1 --port 9002 --workers 1
 В третьем терминале запустите прокси:
 
 ```bash
-PYTHONPATH=proxy poetry run python -m proxy.main
+PYTHONPATH=proxy uv run python -m proxy.main
 ```
 
 Прокси будет слушать `http://127.0.0.1:8080`, а endpoint метрик — `http://127.0.0.1:8000`. Upstream-серверы и лимиты подключений задаются в [proxy/config.yml](proxy/config.yml).
